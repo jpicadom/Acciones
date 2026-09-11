@@ -94,7 +94,10 @@ if data:
         current_year = st.number_input("Anio actual (ultimo anio fiscal)", value=2026, step=1)
         beta = st.number_input("Beta", value=float(data.beta or 1.0), format="%.2f")
         risk_free = st.number_input("Tasa libre de riesgo", value=float(data.risk_free_rate or 0.03), format="%.5f")
-        mrp = st.number_input("Prima de riesgo de mercado", value=float(data.market_risk_premium or 0.03), format="%.5f")
+        mrp = st.number_input(
+            "Prima de riesgo de mercado", value=float(data.market_risk_premium or 0.03), format="%.5f",
+            help="Se obtiene automaticamente (IMRP y Rf mas recientes de EE.UU., fuente: Damodaran/NYU Stern). Editable."
+        )
 
     calc_discount_rate = discount_rate_from_beta(beta, risk_free, mrp)
 

@@ -64,6 +64,16 @@ Los dos resultados más importantes se muestran en tarjetas grandes:
 - La tasa de descuento se calcula como `Tasa libre de riesgo + Beta x Prima
   de riesgo de mercado`, igual que en el Excel original; puedes
   sobreescribirla directamente si prefieres otra.
+- Para acciones de EE. UU., la **Prima de riesgo de mercado (IMRP)** y la
+  **Tasa libre de riesgo (Rf)** se traen automáticamente del dato más
+  reciente publicado por Aswath Damodaran (NYU Stern). Se usó esta fuente en
+  vez de market-risk-premia.com porque esa página muestra los valores en un
+  gráfico generado por JavaScript, que no se puede leer con una petición
+  HTTP normal — Damodaran publica la misma clase de dato en una tabla HTML
+  simple, ideal para automatizar. Si no hay conexión, la app usa un valor de
+  respaldo y te avisa. Para acciones de China/Hong Kong se mantiene el valor
+  de referencia original del Excel (Damodaran no cubre esa región en esta
+  tabla).
 - El motor de cálculo (`valuation.py`) fue validado contra los valores
   exactos que traía el archivo Excel original para Micron (MU): coincide
   hasta el décimo decimal.
