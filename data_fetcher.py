@@ -11,32 +11,36 @@ from typing import Optional, Tuple
 import datetime
 import functools
 import io
+import re
 
-import pandas as pd
 import requests
+from pypdf import PdfReader
 import yfinance as yf
 
 
 # --------------------------------------------------------------------------
-# Prima de riesgo de mercado (IMRP) y tasa libre de riesgo (Rf) de EE.UU.
+# Prima de riesgo de mercado (ERP) y tasa libre de riesgo (Rf) de EE.UU.
 # --------------------------------------------------------------------------
-# market-risk-premia.com/us.html (la pagina sugerida) muestra estos datos en
-# un grafico que se genera con JavaScript, por lo que no se puede leer con un
-# request HTTP normal (el HTML que llega no trae los numeros, solo el grafico
-# vacio). En su lugar se usa la tabla de "Implied Equity Risk Premiums" de
-# Aswath Damodaran (NYU Stern) -- la referencia academica/practica estandar
-# para el IMRP de EE.UU., publicada en HTML plano y facil de leer por codigo:
-#   https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histimpl.html
-# De ahi se toman, de la ULTIMA fila con datos: la prima implicita ("Implied
-# ERP (FCFE)") como Market Risk Premium, y la tasa del bono del Tesoro a 10
-# anios ("T.Bond Rate") como Risk Free Rate.
-DAMODARAN_IMPLIED_ERP_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histimpl.html"
+# Fuente: Kroll (antes Duff & Phelps) publica su "Recommended U.S. Equity
+# Risk Premium and Corresponding Risk-free Rate", el estandar mas usado en
+# valoracion profesional en EE.UU. Los valores actuales solo aparecen en un
+# grafico/SVG en la pagina web, pero Kroll tambien publica una tabla
+# historica en PDF (texto real, no imagen) que sí se puede leer por codigo:
+#   https://www.kroll.com/en/reports/cost-of-capital/recommended-us-equity-risk-premium-and-corresponding-risk-free-rates
+KROLL_PAGE_URL = (
+    "https://www.kroll.com/en/reports/cost-of-capital/"
+    "recommended-us-equity-risk-premium-and-corresponding-risk-free-rates"
+)
+KROLL_PDF_TABLE_URL = (
+    "https://edge.sitecorecloud.io/krollllc17bf0-kroll6fee-proda464-0e9b/"
+    "media/cost-of-capital/kroll-us-erp-rf-table.pdf"
+)
 
 # Valores de respaldo (los que traia originalmente la hoja de calculo) por si
 # la fuente en linea no esta disponible en el momento de usar la app.
 FALLBACK_ASSUMPTIONS = {
     "US": {"risk_free_rate": 0.02958, "market_risk_premium": 0.0301,
-           "source": "market-risk-premia.com/us.html (valor de respaldo, sin conexion)"},
+           "source": f"{KROLL_PAGE_URL} (valor de respaldo, sin conexion)"},
     "CN_HK": {"risk_free_rate": 0.02604, "market_risk_premium": 0.07412,
               "source": "market-risk-premia.com/hk.html (valor de respaldo, sin conexion)"},
 }
@@ -45,67 +49,55 @@ FALLBACK_ASSUMPTIONS = {
 DEFAULT_ASSUMPTIONS = FALLBACK_ASSUMPTIONS
 
 
-def _pct_to_float(value) -> Optional[float]:
-    try:
-        return float(str(value).replace("%", "").replace(",", ".").strip()) / 100
-    except (ValueError, TypeError):
-        return None
-
-
 @functools.lru_cache(maxsize=1)
 def fetch_us_implied_erp_and_rf() -> Tuple[Optional[float], Optional[float], Optional[str], str]:
-    """Trae el IMRP y el Rf mas recientes de EE.UU. desde la tabla de Damodaran.
+    """Trae el ERP y el Rf recomendados MAS RECIENTES de EE.UU. desde la
+    tabla en PDF que publica Kroll ("Current Guidance", primera fila de la
+    tabla = la vigencia mas reciente).
 
-    Devuelve (risk_free_rate, market_risk_premium, anio_del_dato, fuente).
+    Devuelve (risk_free_rate, market_risk_premium, vigente_desde, fuente).
     Si algo falla, devuelve (None, None, None, mensaje_de_error) para que el
     llamador decida usar el valor de respaldo.
     """
     try:
-        resp = requests.get(DAMODARAN_IMPLIED_ERP_URL, timeout=15,
+        resp = requests.get(KROLL_PDF_TABLE_URL, timeout=20,
                              headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
-        tables = pd.read_html(io.StringIO(resp.text))
+        reader = PdfReader(io.BytesIO(resp.content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
     except Exception as e:
-        return None, None, None, f"No se pudo descargar/leer {DAMODARAN_IMPLIED_ERP_URL}: {e}"
+        return None, None, None, f"No se pudo descargar/leer {KROLL_PDF_TABLE_URL}: {e}"
 
-    target = None
-    for t in tables:
-        cols = [str(c) for c in t.columns]
-        if any("ERP" in c for c in cols) and any("Bond" in c for c in cols):
-            target = t
-            break
-    if target is None:
-        return None, None, None, "No se encontro la tabla de IMRP/Rf en la pagina de Damodaran"
+    # La tabla esta ordenada de la vigencia mas reciente a la mas antigua.
+    # La fila vigente actual siempre incluye "UNTIL FURTHER NOTICE".
+    match = re.search(
+        r"([A-Z][a-z]+ \d{1,2},\s*\d{4})\s*[−-]\s*UNTIL FURTHER NOTICE.*?"
+        r"(\d+\.\d+)\*?\s+(\d+\.\d+)\s+\w",
+        text, re.DOTALL,
+    )
+    if not match:
+        return None, None, None, "No se encontro la fila 'UNTIL FURTHER NOTICE' en el PDF de Kroll"
 
-    erp_col = next(c for c in target.columns if "ERP" in str(c))
-    bond_col = next(c for c in target.columns if "Bond" in str(c))
-    year_col = next((c for c in target.columns if str(c).strip().lower() == "year"), target.columns[0])
-
-    # Ultima fila que tenga tanto ERP como T.Bond Rate validos (la mas reciente)
-    valid = target[[year_col, bond_col, erp_col]].copy()
-    valid["_erp"] = valid[erp_col].apply(_pct_to_float)
-    valid["_rf"] = valid[bond_col].apply(_pct_to_float)
-    valid = valid.dropna(subset=["_erp", "_rf"])
-    if valid.empty:
-        return None, None, None, "La tabla de Damodaran no trae filas completas de ERP/T.Bond Rate"
-
-    last = valid.iloc[-1]
+    effective_date, rf_str, erp_str = match.group(1), match.group(2), match.group(3)
     try:
-        year = str(int(float(last[year_col])))
-    except (ValueError, TypeError):
-        year = str(last[year_col])
-    return float(last["_rf"]), float(last["_erp"]), year, DAMODARAN_IMPLIED_ERP_URL
+        rf = float(rf_str) / 100
+        erp = float(erp_str) / 100
+    except ValueError:
+        return None, None, None, f"No se pudieron convertir los valores extraidos del PDF ({rf_str}, {erp_str})"
+
+    return rf, erp, effective_date, KROLL_PDF_TABLE_URL
 
 
 def get_us_market_assumptions() -> dict:
     """Punto de entrada usado por la app: intenta traer los valores mas
-    recientes de IMRP/Rf de EE.UU.; si falla, usa el valor de respaldo."""
-    rf, erp, year, source = fetch_us_implied_erp_and_rf()
+    recientes de ERP/Rf de EE.UU. (Kroll); si falla, usa el valor de
+    respaldo."""
+    rf, erp, effective_date, source = fetch_us_implied_erp_and_rf()
     if rf is not None and erp is not None:
         return {
             "risk_free_rate": rf,
             "market_risk_premium": erp,
-            "source": f"{source} (dato mas reciente disponible: {year})",
+            "source": f"{source} (vigente desde {effective_date})",
             "live": True,
         }
     fallback = dict(FALLBACK_ASSUMPTIONS["US"])

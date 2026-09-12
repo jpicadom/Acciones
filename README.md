@@ -64,16 +64,21 @@ Los dos resultados más importantes se muestran en tarjetas grandes:
 - La tasa de descuento se calcula como `Tasa libre de riesgo + Beta x Prima
   de riesgo de mercado`, igual que en el Excel original; puedes
   sobreescribirla directamente si prefieres otra.
-- Para acciones de EE. UU., la **Prima de riesgo de mercado (IMRP)** y la
-  **Tasa libre de riesgo (Rf)** se traen automáticamente del dato más
-  reciente publicado por Aswath Damodaran (NYU Stern). Se usó esta fuente en
-  vez de market-risk-premia.com porque esa página muestra los valores en un
-  gráfico generado por JavaScript, que no se puede leer con una petición
-  HTTP normal — Damodaran publica la misma clase de dato en una tabla HTML
-  simple, ideal para automatizar. Si no hay conexión, la app usa un valor de
-  respaldo y te avisa. Para acciones de China/Hong Kong se mantiene el valor
-  de referencia original del Excel (Damodaran no cubre esa región en esta
-  tabla).
+- Para acciones de EE. UU., la **Prima de riesgo de mercado (ERP)** y la
+  **Tasa libre de riesgo (Rf)** se traen automáticamente de la guía vigente
+  más reciente ("Current Guidance") que publica **Kroll** (antes Duff &
+  Phelps) — el estándar más usado en valoración profesional en EE. UU. La
+  página web de Kroll solo muestra el valor actual en un gráfico SVG (no
+  legible por código), así que la app lee directamente la tabla histórica en
+  PDF que Kroll publica junto a esa página, y toma su primera fila ("UNTIL
+  FURTHER NOTICE" = la vigencia actual). Si no hay conexión, la app usa un
+  valor de respaldo y te avisa. Para acciones de China/Hong Kong se mantiene
+  el valor de referencia original del Excel (Kroll no cubre esa región en
+  esta tabla).
+- Nota de Kroll: si el rendimiento *spot* del bono del Tesoro a 20 años es
+  mayor a la tasa "normalizada" que trae la tabla, ellos recomiendan usar
+  ese valor spot en su lugar. La app no lo calcula automáticamente — puedes
+  ajustar el campo "Tasa libre de riesgo" a mano si aplica.
 - El motor de cálculo (`valuation.py`) fue validado contra los valores
   exactos que traía el archivo Excel original para Micron (MU): coincide
   hasta el décimo decimal.

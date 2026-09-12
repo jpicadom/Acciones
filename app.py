@@ -96,7 +96,7 @@ if data:
         risk_free = st.number_input("Tasa libre de riesgo", value=float(data.risk_free_rate or 0.03), format="%.5f")
         mrp = st.number_input(
             "Prima de riesgo de mercado", value=float(data.market_risk_premium or 0.03), format="%.5f",
-            help="Se obtiene automaticamente (IMRP y Rf mas recientes de EE.UU., fuente: Damodaran/NYU Stern). Editable."
+            help="Se obtiene automaticamente (ERP y Rf 'Current Guidance' mas recientes de Kroll para EE.UU.). Editable."
         )
 
     calc_discount_rate = discount_rate_from_beta(beta, risk_free, mrp)
