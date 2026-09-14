@@ -1,9 +1,9 @@
 """
-Obtiene automaticamente, a partir del "stock symbol", los datos que en la
+Obtiene automáticamente, a partir del "stock symbol", los datos que en la
 hoja de Excel original iban en las celdas de fondo blanco (las que el
 usuario llenaba a mano). Usa la libreria `yfinance` (datos de Yahoo Finance).
 
-Todo lo que no se pueda obtener automaticamente se deja en None para que la
+Todo lo que no se pueda obtener automáticamente se deja en None para que la
 app se lo pida al usuario (igual que una celda blanca vacia en Excel).
 """
 from dataclasses import dataclass
@@ -23,7 +23,7 @@ import yfinance as yf
 # --------------------------------------------------------------------------
 # Fuente: Kroll (antes Duff & Phelps) publica su "Recommended U.S. Equity
 # Risk Premium and Corresponding Risk-free Rate", el estandar mas usado en
-# valoracion profesional en EE.UU. Los valores actuales solo aparecen en un
+# valoración profesional en EE.UU. Los valores actuales solo aparecen en un
 # grafico/SVG en la pagina web, pero Kroll tambien publica una tabla
 # historica en PDF (texto real, no imagen) que sí se puede leer por codigo:
 #   https://www.kroll.com/en/reports/cost-of-capital/recommended-us-equity-risk-premium-and-corresponding-risk-free-rates
@@ -119,11 +119,22 @@ class FetchedData:
     net_income: Optional[float] = None
     operating_cash_flow: Optional[float] = None
     free_cash_flow: Optional[float] = None
+    ebitda: Optional[float] = None
+    region: str = "US"  # "US" o "CN_HK" -- determina que tabla/formula de tasa de descuento usar
     beta: Optional[float] = None
     risk_free_rate: Optional[float] = None
     market_risk_premium: Optional[float] = None
     historical_growth_estimate: Optional[float] = None  # CAGR de utilidad neta, ultimos anios disponibles
     scale: str = "unidades"  # aviso de unidades ("unidades" o "millones") para mostrar en la UI
+    # --- Opinion de analistas ---
+    analyst_target_mean: Optional[float] = None
+    analyst_target_median: Optional[float] = None
+    analyst_target_high: Optional[float] = None
+    analyst_target_low: Optional[float] = None
+    analyst_count: Optional[int] = None
+    analyst_recommendation_key: Optional[str] = None    # "strong_buy" | "buy" | "hold" | "sell" | "strong_sell"
+    analyst_recommendation_mean: Optional[float] = None  # escala 1 (compra fuerte) a 5 (venta fuerte)
+    pe_ratio_ttm: Optional[float] = None  # Precio / Beneficio (Trailing Twelve Months)
     warnings: list = None
 
     def __post_init__(self):
@@ -167,6 +178,21 @@ def fetch_stock_data(ticker_symbol: str) -> FetchedData:
     data.last_close_price = _safe_get(info, "currentPrice", "previousClose", "regularMarketPreviousClose")
     data.shares_outstanding = _safe_get(info, "sharesOutstanding")
     data.beta = _safe_get(info, "beta")
+    data.ebitda = _safe_get(info, "ebitda")
+
+    # --- Opinion de analistas ---
+    data.analyst_target_mean = _safe_get(info, "targetMeanPrice")
+    data.analyst_target_median = _safe_get(info, "targetMedianPrice")
+    data.analyst_target_high = _safe_get(info, "targetHighPrice")
+    data.analyst_target_low = _safe_get(info, "targetLowPrice")
+    data.analyst_count = _safe_get(info, "numberOfAnalystOpinions")
+    data.analyst_recommendation_key = _safe_get(info, "recommendationKey")
+    data.analyst_recommendation_mean = _safe_get(info, "recommendationMean")
+    if data.analyst_target_mean is None:
+        data.warnings.append("No hay precio objetivo de analistas disponible para este ticker.")
+
+    # --- Ratio P/E (Precio / Beneficio TTM) ---
+    data.pe_ratio_ttm = _safe_get(info, "trailingPE")
 
     total_debt = _safe_get(info, "totalDebt")
     cash = _safe_get(info, "totalCash")
@@ -200,8 +226,18 @@ def fetch_stock_data(ticker_symbol: str) -> FetchedData:
             row = fin.loc["Net Income"]
             net_income_history = [float(v) for v in row.values]
             data.net_income = net_income_history[0]
+        if data.ebitda is None and fin is not None and not fin.empty:
+            if "EBITDA" in fin.index:
+                data.ebitda = float(fin.loc["EBITDA"].iloc[0])
+            elif "EBIT" in fin.index and "Reconciled Depreciation" in fin.index:
+                data.ebitda = float(fin.loc["EBIT"].iloc[0]) + float(fin.loc["Reconciled Depreciation"].iloc[0])
+            elif "Operating Income" in fin.index and "Reconciled Depreciation" in fin.index:
+                data.ebitda = float(fin.loc["Operating Income"].iloc[0]) + float(fin.loc["Reconciled Depreciation"].iloc[0])
     except Exception as e:
         data.warnings.append(f"No se pudo leer el estado de resultados: {e}")
+
+    if data.ebitda is None:
+        data.warnings.append("No se pudo obtener el EBITDA; el indicador Deuda Neta/EBITDA no estara disponible.")
 
     try:
         cf = tk.cashflow
@@ -222,6 +258,7 @@ def fetch_stock_data(ticker_symbol: str) -> FetchedData:
     # --- Tasa libre de riesgo / prima de riesgo de mercado ---
     exch = _safe_get(info, "exchange", "fullExchangeName") or ""
     is_cn_hk = any(x in str(exch).upper() for x in ["HKG", "HONG KONG", "SHANGHAI", "SHENZHEN"])
+    data.region = "CN_HK" if is_cn_hk else "US"
 
     if is_cn_hk:
         # Damodaran solo cubre EE.UU.; para China/HK se mantiene el valor de
