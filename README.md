@@ -135,6 +135,20 @@ Los dos resultados más importantes se muestran en tarjetas grandes:
 - **Ratio P/E (Precio/Beneficio TTM)**: se muestra con un decimal junto al
   indicador de apalancamiento (ej. "24.6x"). Viene directo de Yahoo Finance
   (`trailingPE`); si no está disponible para el ticker, se muestra "N/D".
+- **ROIC (Return on Invested Capital)**: `NOPAT / Capital Invertido`, donde
+  `NOPAT = EBIT x (1 - tasa de impuesto efectiva)` y
+  `Capital Invertido = Deuda Total + Patrimonio - Caja`. Si no se puede
+  calcular la tasa de impuesto efectiva de la empresa (falta el dato en
+  Yahoo Finance), se usa 21% (tasa corporativa estatutaria de EE. UU.) como
+  respaldo, y la app te avisa.
+- **PEG Ratio**: `P/E (TTM) / (Crecimiento años 1-3 x 100)` — reutiliza la
+  tasa de crecimiento que ya defines para el modelo, así que no pide ningún
+  dato nuevo. Regla general: por debajo de 1 suele considerarse atractivo,
+  por encima de 2 costoso. Si el crecimiento es cero o negativo, se muestra
+  "N/D" (el ratio no tiene una lectura útil en ese caso).
+- **FCF Margin**: `Flujo de Caja Libre / Ingresos totales` — qué tan bien la
+  empresa convierte ventas en efectivo real (más difícil de manipular
+  contablemente que la utilidad neta reportada).
 - **Indicador de apalancamiento (Deuda Total / EBITDA)**: se calcula como
   `Deuda total / EBITDA del último período`. Interpretación:
   menor a 2x = Excelente, entre 2x y 4x = Saludable, entre 4x y 5x =

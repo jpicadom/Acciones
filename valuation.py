@@ -216,3 +216,46 @@ def interpret_recommendation(key: Optional[str]) -> tuple:
     if not key:
         return "Sin datos", "#6b7280"
     return _RECOMMENDATION_LABELS.get(key.lower(), ("Sin datos", "#6b7280"))
+
+
+# --------------------------------------------------------------------------
+# ROIC (Return on Invested Capital)
+# --------------------------------------------------------------------------
+def compute_roic(ebit: Optional[float], effective_tax_rate: Optional[float],
+                  total_debt: Optional[float], total_equity: Optional[float],
+                  cash_and_st_investments: Optional[float]) -> Optional[float]:
+    """ROIC = NOPAT / Capital Invertido
+    NOPAT (utilidad operativa neta despues de impuestos) = EBIT x (1 - tasa de impuesto)
+    Capital Invertido = Deuda Total + Patrimonio - Caja e inversiones a corto plazo
+    Devuelve None si falta algun dato necesario o el capital invertido no es valido."""
+    if ebit is None or effective_tax_rate is None or total_debt is None or total_equity is None:
+        return None
+    invested_capital = total_debt + total_equity - (cash_and_st_investments or 0.0)
+    if invested_capital <= 0:
+        return None
+    nopat = ebit * (1 - effective_tax_rate)
+    return nopat / invested_capital
+
+
+# --------------------------------------------------------------------------
+# PEG Ratio (P/E ajustado por crecimiento)
+# --------------------------------------------------------------------------
+def compute_peg_ratio(pe_ratio_ttm: Optional[float], growth_rate: Optional[float]) -> Optional[float]:
+    """PEG = P/E (TTM) / (tasa de crecimiento esperada, en %).
+    Se usa la tasa de crecimiento de los años 1-3 del modelo como estimado
+    de crecimiento cercano. Devuelve None si el P/E o el crecimiento no son
+    validos (crecimiento <= 0 hace que el PEG no tenga una lectura util)."""
+    if pe_ratio_ttm is None or growth_rate is None or growth_rate <= 0:
+        return None
+    return pe_ratio_ttm / (growth_rate * 100)
+
+
+# --------------------------------------------------------------------------
+# FCF Margin (Margen de Flujo de Caja Libre)
+# --------------------------------------------------------------------------
+def compute_fcf_margin(free_cash_flow: Optional[float], total_revenue: Optional[float]) -> Optional[float]:
+    """FCF Margin = Flujo de Caja Libre / Ingresos totales.
+    Devuelve None si falta algun dato o los ingresos no son validos."""
+    if free_cash_flow is None or not total_revenue:
+        return None
+    return free_cash_flow / total_revenue

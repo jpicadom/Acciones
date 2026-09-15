@@ -135,6 +135,10 @@ class FetchedData:
     analyst_recommendation_key: Optional[str] = None    # "strong_buy" | "buy" | "hold" | "sell" | "strong_sell"
     analyst_recommendation_mean: Optional[float] = None  # escala 1 (compra fuerte) a 5 (venta fuerte)
     pe_ratio_ttm: Optional[float] = None  # Precio / Beneficio (Trailing Twelve Months)
+    total_revenue: Optional[float] = None
+    ebit: Optional[float] = None
+    effective_tax_rate: Optional[float] = None
+    total_equity: Optional[float] = None
     warnings: list = None
 
     def __post_init__(self):
@@ -216,6 +220,10 @@ def fetch_stock_data(ticker_symbol: str) -> FetchedData:
                     if label in bs.index:
                         data.cash_and_st_investments = float(bs.loc[label, latest_col])
                         break
+            for label in ["Stockholders Equity", "Total Equity Gross Minority Interest", "Common Stock Equity"]:
+                if label in bs.index:
+                    data.total_equity = float(bs.loc[label, latest_col])
+                    break
     except Exception as e:
         data.warnings.append(f"No se pudo leer el balance general: {e}")
 
@@ -233,11 +241,35 @@ def fetch_stock_data(ticker_symbol: str) -> FetchedData:
                 data.ebitda = float(fin.loc["EBIT"].iloc[0]) + float(fin.loc["Reconciled Depreciation"].iloc[0])
             elif "Operating Income" in fin.index and "Reconciled Depreciation" in fin.index:
                 data.ebitda = float(fin.loc["Operating Income"].iloc[0]) + float(fin.loc["Reconciled Depreciation"].iloc[0])
+        if fin is not None and not fin.empty:
+            for label in ["EBIT", "Operating Income"]:
+                if label in fin.index:
+                    data.ebit = float(fin.loc[label].iloc[0])
+                    break
+            for label in ["Total Revenue", "Operating Revenue"]:
+                if label in fin.index:
+                    data.total_revenue = float(fin.loc[label].iloc[0])
+                    break
+            if "Pretax Income" in fin.index and "Tax Provision" in fin.index:
+                pretax = float(fin.loc["Pretax Income"].iloc[0])
+                tax = float(fin.loc["Tax Provision"].iloc[0])
+                if pretax:
+                    data.effective_tax_rate = tax / pretax
     except Exception as e:
         data.warnings.append(f"No se pudo leer el estado de resultados: {e}")
 
+    if data.total_revenue is None:
+        data.total_revenue = _safe_get(info, "totalRevenue")
+
+    if data.effective_tax_rate is None:
+        data.effective_tax_rate = 0.21  # tasa corporativa estatutaria de EE.UU. (respaldo)
+        data.warnings.append(
+            "No se pudo calcular la tasa de impuesto efectiva de la empresa; se uso 21% (tasa "
+            "corporativa estatutaria de EE.UU.) como respaldo para calcular el ROIC."
+        )
+
     if data.ebitda is None:
-        data.warnings.append("No se pudo obtener el EBITDA; el indicador Deuda Neta/EBITDA no estara disponible.")
+        data.warnings.append("No se pudo obtener el EBITDA; el indicador Deuda Total/EBITDA no estara disponible.")
 
     try:
         cf = tk.cashflow

@@ -13,7 +13,7 @@ from data_fetcher import fetch_stock_data
 from valuation import (
     ValuationInputs, compute_intrinsic_value, discount_rate_from_beta,
     discount_rate_from_beta_table_us, total_debt_to_ebitda, interpret_debt_ratio,
-    interpret_recommendation,
+    interpret_recommendation, compute_roic, compute_peg_ratio, compute_fcf_margin,
 )
 
 st.set_page_config(page_title="Calculador de Valor Intrínseco", page_icon="📈", layout="wide")
@@ -146,22 +146,6 @@ if data:
         else "formula Risk Free + Beta x Prima"
     )
 
-    # --- Indicador Deuda Total / EBITDA y Ratio P/E ---
-    debt_ratio = total_debt_to_ebitda(total_debt, data.ebitda)
-    debt_label, debt_color = interpret_debt_ratio(debt_ratio)
-    st.markdown('<p class="section-title">Indicadores</p>', unsafe_allow_html=True)
-    ratio_txt = f"{debt_ratio:.2f}x" if debt_ratio is not None else "N/D"
-    pe_txt = f"{data.pe_ratio_ttm:.1f}x" if data.pe_ratio_ttm else "N/D"
-    st.markdown(
-        f'<span class="debt-badge" style="background:{debt_color};">'
-        f'Deuda Total / EBITDA: {ratio_txt} — {debt_label}</span>'
-        f'&nbsp;&nbsp;'
-        f'<span class="debt-badge" style="background:#374151;">'
-        f'Ratio P/E (Precio/Beneficio TTM): {pe_txt}</span>',
-        unsafe_allow_html=True,
-    )
-    st.caption("Excelente < 2x · Saludable 2x–4x · Alerta 4x–5x · Riesgosa > 5x")
-
     st.markdown('<p class="section-title">Tasas de crecimiento y descuento</p>', unsafe_allow_html=True)
     g1, g2, g3, g4, g5 = st.columns(5)
     with g1:
@@ -195,6 +179,33 @@ if data:
             "terminal no es matematicamente valido (la perpetuidad no converge). Se usara $0 de valor terminal "
             "hasta que ajustes g o la tasa de descuento."
         )
+
+    # --- Indicadores fundamentales: Deuda Total/EBITDA, P/E, ROIC, PEG, FCF Margin ---
+    debt_ratio = total_debt_to_ebitda(total_debt, data.ebitda)
+    debt_label, debt_color = interpret_debt_ratio(debt_ratio)
+    roic = compute_roic(data.ebit, data.effective_tax_rate, total_debt, data.total_equity, cash)
+    peg = compute_peg_ratio(data.pe_ratio_ttm, growth_0_3)
+    fcf_margin = compute_fcf_margin(data.free_cash_flow, data.total_revenue)
+
+    st.markdown('<p class="section-title">Indicadores</p>', unsafe_allow_html=True)
+    ratio_txt = f"{debt_ratio:.2f}x" if debt_ratio is not None else "N/D"
+    pe_txt = f"{data.pe_ratio_ttm:.1f}x" if data.pe_ratio_ttm else "N/D"
+    roic_txt = f"{roic*100:.1f}%" if roic is not None else "N/D"
+    peg_txt = f"{peg:.2f}" if peg is not None else "N/D"
+    fcf_margin_txt = f"{fcf_margin*100:.1f}%" if fcf_margin is not None else "N/D"
+    st.markdown(
+        f'<span class="debt-badge" style="background:{debt_color};">Deuda Total / EBITDA: {ratio_txt} — {debt_label}</span>'
+        f'&nbsp;&nbsp;<span class="debt-badge" style="background:#374151;">Ratio P/E (TTM): {pe_txt}</span>'
+        f'&nbsp;&nbsp;<span class="debt-badge" style="background:#0f5f7a;">ROIC: {roic_txt}</span>'
+        f'&nbsp;&nbsp;<span class="debt-badge" style="background:#5a4a9e;">PEG Ratio: {peg_txt}</span>'
+        f'&nbsp;&nbsp;<span class="debt-badge" style="background:#1f7a5f;">FCF Margin: {fcf_margin_txt}</span>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Deuda/EBITDA — Excelente < 2x · Saludable 2x–4x · Alerta 4x–5x · Riesgosa > 5x   ·   "
+        "PEG — por debajo de 1 suele considerarse atractivo, por encima de 2 costoso (usa el crecimiento de años 1-3 como estimado)   ·   "
+        "ROIC y FCF Margin: mientras mas altos, mejor (compara contra el costo de capital y contra la industria)."
+    )
 
     if st.button("💰 Calcular Valor Intrínseco", type="primary"):
         inp = ValuationInputs(
