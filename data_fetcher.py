@@ -15,6 +15,7 @@ import re
 
 import requests
 from pypdf import PdfReader
+import pandas as pd
 import yfinance as yf
 
 
@@ -313,3 +314,123 @@ def fetch_stock_data(ticker_symbol: str) -> FetchedData:
         data.scale = "unidades"
 
     return data
+
+
+# --------------------------------------------------------------------------
+# Historicos para graficos: fundamentales trimestrales y precio
+# --------------------------------------------------------------------------
+def fetch_quarterly_fundamentals(ticker_symbol: str, max_years: int = 10) -> dict:
+    """Trae, por trimestre, Ingreso Total, Ingreso Neto, Flujo de Caja
+    Operativo, Flujo de Caja Libre, Margen Bruto y Margen Operativo.
+
+    Yahoo Finance solo conserva ~4-5 años de historial trimestral de forma
+    gratuita (no 10 años completos); la funcion trae todo lo disponible,
+    hasta 'max_years' años, y avisa si hay menos historial del solicitado.
+
+    Devuelve un dict con listas paralelas ordenadas cronologicamente
+    (la mas antigua primero) bajo la clave 'quarters' (fechas) y una clave
+    por metrica, mas 'warnings' (lista de avisos).
+    """
+    result = {
+        "quarters": [], "total_revenue": [], "net_income": [],
+        "operating_cash_flow": [], "free_cash_flow": [],
+        "gross_margin": [], "operating_margin": [], "warnings": [],
+    }
+    tk = yf.Ticker(ticker_symbol.upper())
+
+    try:
+        qfin = tk.quarterly_financials
+    except Exception as e:
+        qfin = None
+        result["warnings"].append(f"No se pudo leer el estado de resultados trimestral: {e}")
+    try:
+        qcf = tk.quarterly_cashflow
+    except Exception as e:
+        qcf = None
+        result["warnings"].append(f"No se pudo leer el flujo de caja trimestral: {e}")
+
+    if qfin is None or qfin.empty:
+        result["warnings"].append("Yahoo Finance no reporta estados de resultados trimestrales para este ticker.")
+        return result
+
+    # Columnas = fechas de cierre de cada trimestre, mas reciente primero.
+    all_dates = list(qfin.columns)
+    cutoff = None
+    try:
+        cutoff = all_dates[0] - pd.DateOffset(years=max_years)
+    except Exception:
+        cutoff = None
+
+    dates_chrono = sorted(all_dates)  # mas antigua primero
+    if cutoff is not None:
+        dates_chrono = [d for d in dates_chrono if d >= cutoff]
+
+    span_years = None
+    if dates_chrono:
+        span_years = (dates_chrono[-1] - dates_chrono[0]).days / 365.25
+    if span_years is not None and span_years < max_years - 0.5:
+        result["warnings"].append(
+            f"Yahoo Finance solo tiene ~{span_years:.1f} años de historial trimestral disponible "
+            f"para este ticker (se pidieron {max_years})."
+        )
+
+    def _row(df, labels, col):
+        if df is None:
+            return None
+        for label in labels:
+            if label in df.index and col in df.columns:
+                val = df.loc[label, col]
+                return float(val) if val is not None else None
+        return None
+
+    for col in dates_chrono:
+        revenue = _row(qfin, ["Total Revenue", "Operating Revenue"], col)
+        net_income = _row(qfin, ["Net Income"], col)
+        gross_profit = _row(qfin, ["Gross Profit"], col)
+        operating_income = _row(qfin, ["Operating Income"], col)
+        ocf = _row(qcf, ["Operating Cash Flow"], col)
+        fcf = _row(qcf, ["Free Cash Flow"], col)
+        if fcf is None and ocf is not None:
+            capex = _row(qcf, ["Capital Expenditure"], col)
+            if capex is not None:
+                fcf = ocf + capex  # capex ya viene negativo en yfinance
+
+        result["quarters"].append(col.date() if hasattr(col, "date") else col)
+        result["total_revenue"].append(revenue)
+        result["net_income"].append(net_income)
+        result["operating_cash_flow"].append(ocf)
+        result["free_cash_flow"].append(fcf)
+        result["gross_margin"].append((gross_profit / revenue) if (gross_profit is not None and revenue) else None)
+        result["operating_margin"].append((operating_income / revenue) if (operating_income is not None and revenue) else None)
+
+    if not result["quarters"]:
+        result["warnings"].append("No se encontraron trimestres con datos validos para graficar.")
+
+    return result
+
+
+def fetch_price_history(ticker_symbol: str, years: int = 10) -> dict:
+    """Trae el precio de cierre historico (mensual) de los ultimos 'years'
+    años. Devuelve {'dates': [...], 'close': [...], 'warnings': [...]}."""
+    result = {"dates": [], "close": [], "warnings": []}
+    tk = yf.Ticker(ticker_symbol.upper())
+    try:
+        hist = tk.history(period=f"{years}y", interval="1mo", auto_adjust=False)
+    except Exception as e:
+        result["warnings"].append(f"No se pudo leer el precio historico: {e}")
+        return result
+
+    if hist is None or hist.empty:
+        result["warnings"].append("Yahoo Finance no devolvio precios historicos para este ticker.")
+        return result
+
+    result["dates"] = [d.date() if hasattr(d, "date") else d for d in hist.index]
+    result["close"] = [float(v) for v in hist["Close"].values]
+
+    span_years = (hist.index[-1] - hist.index[0]).days / 365.25
+    if span_years < years - 0.5:
+        result["warnings"].append(
+            f"Yahoo Finance solo tiene ~{span_years:.1f} años de historial de precio disponible "
+            f"para este ticker (se pidieron {years})."
+        )
+    return result

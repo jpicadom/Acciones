@@ -66,6 +66,15 @@ Los dos resultados más importantes se muestran en tarjetas grandes:
 
 ## Notas importantes
 
+- **Pestaña "📈 Gráficos"**: separada de la calculadora, tiene su propio
+  campo de stock symbol (precargado con el que uses en la calculadora) y su
+  propio botón "Cargar gráficos". Muestra: precio de cierre mensual, Ingreso
+  Total e Ingreso Neto por trimestre, Flujo de Caja Operativo y Flujo de
+  Caja Libre por trimestre, y Margen Bruto/Margen Operativo por trimestre.
+  ⚠️ Yahoo Finance solo conserva de forma gratuita ~4-5 años de historial
+  **trimestral** (no los 10 años completos) para la mayoría de los tickers;
+  la app trae todo lo disponible y te avisa cuántos años realmente
+  consiguió. El precio histórico sí suele estar disponible a 10 años.
 - **Crecimiento perpetuo (g)**: debe ser SIEMPRE menor a la tasa de
   descuento, o el cálculo del valor terminal no es matemáticamente válido
   (la app lo detecta y te avisa, usando $0 de valor terminal mientras tanto).
